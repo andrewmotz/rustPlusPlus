@@ -24,9 +24,31 @@ const Scrape = require('./scrape.js');
 module.exports = {
     getBattlemetricsServerId: async function (client, serverName) {
         let searchServerName = encodeURI(serverName);
-        serverName = module.exports.escapeRegExp(serverName);
-        searchServerName = searchServerName.replace('\#', '\*');
-        const search = `https://www.battlemetrics.com/servers/search?q=${searchServerName}&sort=score&game=rust`;
+        let serverNameEscaped = module.exports.escapeRegExp(serverName);
+        searchServerName = serverNameEscaped.replace('\#', '\*');
+        const search = `https://api.battlemetrics.com/servers?filter[search]=${searchServerName}&filter[game]=rust&fields[server]=name`;
+        const response = await Scrape.scrape(search);
+
+        if (response.status !== 200) {
+            client.log(client.intlGet(null, 'errorCap'), client.intlGet(null, 'failedToScrape', {
+                scrape: search
+            }), 'error')
+            return null;
+        }
+       
+        let data = response.data.data
+        try {
+            if (data.length > 0 && data.data[0].attributes.name === serverName) {
+                return data.data[0].id;
+            }
+        }
+        catch (e) { }
+
+        return null;
+    },
+
+    getBattlemetricsServerInfo: async function (client, serverId) {
+        const search = `https://api.battlemetrics.com/servers/${serverId}?include=session`;
         const response = await Scrape.scrape(search);
 
         if (response.status !== 200) {
@@ -36,70 +58,14 @@ module.exports = {
             return null;
         }
 
-        let regex = new RegExp(`"id":"(\\d+?)","game_id":"rust","name":"${serverName}","`, 'g');
-        let data = regex.exec(response.data);
-
-        try {
-            if (data.length === 2) {
-                return data[1];
-            }
-        }
-        catch (e) { }
-
-        return null;
+        return response;
     },
 
-    getBattlemetricsServerPage: async function (client, serverId) {
-        const search = `https://www.battlemetrics.com/servers/rust/${serverId}`;
-        const response = await Scrape.scrape(search);
+    getBattlemetricsServerOnlinePlayers: async function (client, serverId, serverInfo = null) {
+        if (serverInfo === null) {
+            serverInfo = await module.exports.getBattlemetricsServerInfo(client, serverId);
 
-        if (response.status !== 200) {
-            client.log(client.intlGet(null, 'errorCap'), client.intlGet(null, 'failedToScrape', {
-                scrape: search
-            }), 'error')
-            return null;
-        }
-
-        return response.data;
-    },
-
-    getBattlemetricsServerInfo: async function (client, serverId, page = null) {
-        if (page === null) {
-            page = await module.exports.getBattlemetricsServerPage(client, serverId);
-
-            if (page === null) {
-                client.log(client.intlGet(null, 'errorCap'), client.intlGet(null, 'failedToGetServerInfo', {
-                    id: serverId
-                }), 'error')
-                return null;
-            }
-        }
-
-        let regex = new RegExp(
-            `"id":"${serverId}".*?"ip":"(.+?)","port":(.+?),".*?"rank":(\\d+?),".*?"country":"(.+?)","status":"(.+?)"`, 'g');
-        let data = regex.exec(page);
-
-        try {
-            if (data.length === 6) {
-                return {
-                    ip: data[1],
-                    port: data[2],
-                    rank: data[3],
-                    country: data[4],
-                    status: (data[5] === 'online') ? true : false
-                }
-            }
-        }
-        catch (e) { }
-
-        return null;
-    },
-
-    getBattlemetricsServerOnlinePlayers: async function (client, serverId, page = null) {
-        if (page === null) {
-            page = await module.exports.getBattlemetricsServerPage(client, serverId);
-
-            if (page === null) {
+            if (serverInfo === null) {
                 client.log(client.intlGet(null, 'errorCap'), client.intlGet(null, 'failedToGetTeamTrackerInfo', {
                     id: serverId
                 }), 'error')
@@ -108,14 +74,16 @@ module.exports = {
         }
 
         let onlinePlayers = [];
-        let regex = new RegExp(
-            `<a class="css-zwebxb" href="/players/(\\d+?)">(.+?)</a>.*?time=".*?">(.+?)</`, 'gm');
-        let players = page.matchAll(regex)
-
-        for (let player of players) {
+        for (let inluded of serverInfo.included) {
             try {
-                if (player.length === 4) {
-                    onlinePlayers.push({ id: player[1], name: player[2], time: player[3] });
+                if (inluded.type === "session") {
+                    // Now UTC - session start UTC
+                    let timePlayed = new Date(Date.now() - new Date(inluded.attributes.start));
+                    onlinePlayers.push({ 
+                        id: inluded.relationships.player.data.id, 
+                        name: inluded.attributes.name, 
+                        time: `${timePlayed.getHours()}:${timePlayed.getSeconds()}` 
+                    });
                 }
             }
             catch (e) { }

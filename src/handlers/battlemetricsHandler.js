@@ -37,9 +37,9 @@ module.exports = {
             if (activeServer !== null && instance.serverList[activeServer].battlemetricsId !== null) {
                 let battlemetricsId = instance.serverList[activeServer].battlemetricsId;
                 if (!Object.keys(calledPages).includes(battlemetricsId)) {
-                    const page = await BattlemetricsAPI.getBattlemetricsServerPage(client, battlemetricsId);
-                    if (page !== null) {
-                        calledPages[battlemetricsId] = page;
+                    const serverInfo = await BattlemetricsAPI.getBattlemetricsServerInfo(client, battlemetricsId);
+                    if (serverInfo !== null) {
+                        calledPages[battlemetricsId] = serverInfo;
                     }
                 }
             }
@@ -50,9 +50,9 @@ module.exports = {
 
                 let changed = false;
 
-                let page = null;
+                let serverInfo = null;
                 if (!Object.keys(calledPages).includes(content.battlemetricsId)) {
-                    page = await BattlemetricsAPI.getBattlemetricsServerPage(client, content.battlemetricsId);
+                    serverInfo = await BattlemetricsAPI.getBattlemetricsServerInfo(client, content.battlemetricsId);
                     if (page === null) continue;
                     calledPages[content.battlemetricsId] = page;
                 }
